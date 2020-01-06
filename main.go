@@ -8,9 +8,11 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -20,6 +22,8 @@ var options struct {
 	dns, connRate           string
 	podCount                int
 	serverPort, servingPort int
+
+	instanceID string
 }
 
 var r *rand.Rand
@@ -34,6 +38,8 @@ func init() {
 
 	flag.IntVar(&options.servingPort, "serving-port", 6443, "Port to serve traffic on.")
 	flag.IntVar(&options.serverPort, "server-port", 6443, "Port to connect to the server.")
+
+	flag.StringVar(&options.instanceID, "instance-id", "worker-0", "Instance ID to identify this instance in metrics.")
 
 	r = rand.New(rand.NewSource(time.Now().Unix()))
 }
@@ -62,7 +68,10 @@ func main() {
 	}
 
 	go listenAndServe(enableTLS)
-	go runClient(enableTLS, connDuration)
+
+	if err := runClient(enableTLS, connDuration); err != nil {
+		log.Fatal(err.Error())
+	}
 
 	log.Infof("listening on :%d with TLS:%t",
 		options.servingPort, enableTLS)
@@ -81,20 +90,48 @@ func runClient(enableTLS bool, tickRate time.Duration) error {
 			return err
 		}
 
-		client = &http.Client{Transport: tlsTransport}
+		client = &http.Client{
+			Transport: tlsTransport,
+			Timeout:   time.Second * 10,
+		}
 	}
 
 	go func() {
 		for {
 			<-ticker.C
 
-			resp, err := client.Get(serverAddr(enableTLS))
+			addr := serverAddr(enableTLS)
+
+			log.Infof("sending request %s", addr)
+
+			sentRequestMetrics.WithLabelValues(options.instanceID).Inc()
+
+			resp, err := client.Get(addr)
 			if err != nil {
 				log.Error(err.Error())
 			}
 
+			now := time.Now()
+
 			if resp != nil && resp.Body != nil {
-				resp.Body.Close()
+				defer resp.Body.Close()
+
+				body, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					log.Errorf("failed to ready response body: %s", err)
+					continue
+				}
+
+				n, err := strconv.ParseInt(string(body), 10, 64)
+				if err != nil {
+					log.Errorf("failed to parse body nanosecods (%s): %s", body, err)
+					continue
+				}
+
+				t := time.Unix(0, n)
+				diff := now.Sub(t)
+
+				latencyMetrics.WithLabelValues(options.instanceID).Observe(float64(diff.Nanoseconds()))
 			}
 		}
 	}()
@@ -111,9 +148,9 @@ func serverAddr(enableTLS bool) string {
 	}
 
 	if enableTLS {
-		addr = fmt.Sprintf("https://%s:%d", addr, options.serverPort)
+		addr = fmt.Sprintf("https://%s:%d/hello", addr, options.serverPort)
 	} else {
-		addr = fmt.Sprintf("http://%s:%d", addr, options.serverPort)
+		addr = fmt.Sprintf("http://%s:%d/hello", addr, options.serverPort)
 	}
 
 	return addr
@@ -143,10 +180,15 @@ func tlsClientConfig() (*http.Transport, error) {
 }
 
 func listenAndServe(enableTLS bool) {
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("received request from %s", r.RemoteAddr)
 
-		fmt.Fprintf(w, "Hello World %s", time.Now())
+	// Serve Prometheus metrics
+	http.Handle("/metrics", promhttp.Handler())
+
+	http.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
+		log.Infof("received request from %s", r.RemoteAddr)
+		receivedRequestMetrics.WithLabelValues(options.instanceID).Inc()
+
+		fmt.Fprintf(w, "%d", time.Now().UnixNano())
 	})
 
 	addr := fmt.Sprintf(":%d", options.servingPort)
