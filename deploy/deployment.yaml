@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: knet-stress
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: knet-stress
+  namespace: knet-stress
+spec:
+  selector:
+    app: knet-stress
+  ports:
+    - protocol: TCP
+      port: 6443
+      targetPort: 6443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knet-stress
+  namespace: knet-stress
+  labels:
+    app: knet-stress
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: knet-stress
+  template:
+    metadata:
+      labels:
+        app: knet-stress
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "6443"
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+      - args:
+        - --ca=/tls/ca.pem
+        - --cert=/tls/crt.pem
+        - --key=/tls/key.pem
+        - --dns=knet-stress.knet-stress.svc.cluster.local
+        - --instance-id=$POD_NAME
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        image: gcr.io/jetstack-josh/knet-stress
+        imagePullPolicy: Always
+        name: knet-stress
+        volumeMounts:
+        - mountPath: "/tls"
+          name: tls
+        ports:
+        - containerPort: 6433
+          protocol: TCP
+      volumes:
+        - name: tls
+          csi:
+            driver: csi.cert-manager.io
+            volumeAttributes:
+              csi.cert-manager.io/issuer-name: ca-issuer
+              csi.cert-manager.io/dns-names: knet-stress.knet-stress.svc.cluster.local
+---
+apiVersion: cert-manager.io/v1alpha2
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+  namespace: knet-stress
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1alpha2
+kind: Certificate
+metadata:
+  name: ca-issuer
+  namespace: knet-stress
+spec:
+  isCA: true
+  secretName: ca-key-pair
+  commonName: knet-stress-ca
+  issuerRef:
+    name: selfsigned-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1alpha2
+kind: Issuer
+metadata:
+  name: ca-issuer
+  namespace: knet-stress
+spec:
+  ca:
+    secretName: ca-key-pair
