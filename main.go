@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -14,14 +16,19 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 var options struct {
 	caPath, certPath, keyPath string
 
-	dns, connRate           string
-	podCount                int
-	serverPort, servingPort int
+	endpointNamespace, endpointName string
+	connRate                        string
+	podCount                        int
+	serverPort, servingPort         int
 
 	instanceID string
 }
@@ -32,9 +39,11 @@ func init() {
 	flag.StringVar(&options.caPath, "ca", "", "Filepath to tls CA")
 	flag.StringVar(&options.certPath, "cert", "", "Filepath to tls certificate")
 	flag.StringVar(&options.keyPath, "key", "", "Filepath to tls private key")
-	flag.StringVar(&options.dns, "dns", "default.go-knet-stress-%d.cluster.local", "DNS name to send traffic to. If %d is present then will be replaced with a random number between 0 and pod-count - 1.")
 	flag.StringVar(&options.connRate, "connection-rate", "0.5s", "A golang duration time string to attempt a connection over the computed DNS")
 	flag.IntVar(&options.podCount, "pod-count", 1, "Number of pods to be used to randomise DNS over.")
+
+	flag.StringVar(&options.endpointName, "endpoint-name", "knet-stress", "The endpoint name to get IP addresses.")
+	flag.StringVar(&options.endpointNamespace, "endpoint-namespace", "knet-stress", "The endpoint namespace to get IP addresses.")
 
 	flag.IntVar(&options.servingPort, "serving-port", 6443, "Port to serve traffic on.")
 	flag.IntVar(&options.serverPort, "server-port", 6443, "Port to connect to the server.")
@@ -58,7 +67,7 @@ func main() {
 		len(options.certPath) == 0 ||
 		len(options.keyPath) == 0 {
 
-		log.Infof("TLS disabled, serving and requesting traffic on 80")
+		log.Infof("TLS disabled")
 
 	} else {
 		log.Infof("using TLS bundle using files [%s %s %s]",
@@ -82,7 +91,7 @@ func main() {
 func runClient(enableTLS bool, tickRate time.Duration) error {
 	ticker := time.NewTicker(tickRate)
 
-	client := &http.Client{Transport: http.DefaultTransport}
+	client := &http.Client{Transport: http.DefaultTransport, Timeout: time.Second * 10}
 
 	if enableTLS {
 		tlsTransport, err := tlsClientConfig()
@@ -96,56 +105,107 @@ func runClient(enableTLS bool, tickRate time.Duration) error {
 		}
 	}
 
+	restConfig, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatalf("failed to get in cluster client config: %s", err)
+	}
+
+	kubeclient, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		log.Fatalf("failed to build in cluster kube client: %s", err)
+	}
+
 	go func() {
 		for {
 			<-ticker.C
 
-			addr := serverAddr(enableTLS)
+			log.Infof("looking up endpoint: %s/%s", options.endpointName, options.endpointNamespace)
 
-			log.Infof("sending request %s", addr)
+			const timeout = 5 * time.Second
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
-			sentRequestMetrics.WithLabelValues(options.instanceID).Inc()
-
-			resp, err := client.Get(addr)
+			endpoint, err := kubeclient.CoreV1().Endpoints(options.endpointNamespace).Get(ctx, options.endpointName, metav1.GetOptions{})
 			if err != nil {
-				log.Error(err.Error())
+				log.Errorf("failed to find endpoint %s/%s: %s",
+					options.endpointNamespace, options.endpointName, err)
+				continue
+			}
+			cancel()
+
+			ips := addrsFromEndpoint(endpoint)
+
+			for _, ip := range ips {
+				addr := serverAddr(ip, enableTLS)
+
+				if err := doRequest(client, addr); err != nil {
+					log.Error(err.Error())
+				}
 			}
 
-			now := time.Now()
-
-			if resp != nil && resp.Body != nil {
-				defer resp.Body.Close()
-
-				body, err := ioutil.ReadAll(resp.Body)
-				if err != nil {
-					log.Errorf("failed to ready response body: %s", err)
-					continue
-				}
-
-				n, err := strconv.ParseInt(string(body), 10, 64)
-				if err != nil {
-					log.Errorf("failed to parse body nanosecods (%s): %s", body, err)
-					continue
-				}
-
-				t := time.Unix(0, n)
-				diff := now.Sub(t)
-
-				latencyMetrics.WithLabelValues(options.instanceID).Observe(float64(diff.Nanoseconds()))
-			}
 		}
 	}()
 
 	return nil
 }
 
-func serverAddr(enableTLS bool) string {
-	addr := options.dns
+func doRequest(client *http.Client, addr string) error {
+	log.Infof("sending request %s", addr)
 
-	if strings.Contains(options.dns, "%d") {
-		n := r.Int() % options.podCount
-		addr = fmt.Sprintf(addr, n)
+	sentRequestMetrics.WithLabelValues(options.instanceID).Inc()
+
+	req, err := http.NewRequest("GET", addr, strings.NewReader(""))
+	if err != nil {
+		log.Fatalf("failed to create request: %s", err)
 	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+
+	if resp == nil {
+		return errors.New("got nil response")
+	}
+
+	log.Infof("got response status code: %d", resp.StatusCode)
+
+	if resp.Body != nil {
+		defer resp.Body.Close()
+
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to ready response body: %s", err)
+		}
+
+		//log.Infof("body: %s", body)
+		n, err := strconv.ParseInt(string(body), 10, 64)
+		if err != nil {
+			return fmt.Errorf("%s", body)
+		}
+
+		t := time.Unix(0, n)
+		diff := now.Sub(t)
+
+		latencyMetrics.WithLabelValues(options.instanceID).Observe(float64(diff.Nanoseconds()))
+	}
+
+	return nil
+}
+
+func addrsFromEndpoint(enp *corev1.Endpoints) []string {
+	var ips []string
+	for _, sub := range enp.Subsets {
+		for _, addr := range sub.Addresses {
+			ips = append(ips, addr.IP)
+		}
+	}
+
+	return ips
+}
+
+func serverAddr(addr string, enableTLS bool) string {
 
 	if enableTLS {
 		addr = fmt.Sprintf("https://%s:%d/hello", addr, options.serverPort)
