@@ -16,15 +16,44 @@ spec:
       port: 6443
       targetPort: 6443
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: knet-stress
+  namespace: knet-stress
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  namespace: knet-stress
+  name: knet-stress
+rules:
+- apiGroups: [""]
+  resources: ["endpoints"]
+  verbs: ["get", "list", "watch"]
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1beta1
+metadata:
+  name: knet-stress
+  namespace: knet-stress
+subjects:
+- kind: ServiceAccount
+  name: knet-stress
+  namespace: knet-stress
+roleRef:
+  kind: Role
+  name: knet-stress
+  apiGroup: ""
+---
 apiVersion: apps/v1
-kind: Deployment
+kind: DaemonSet
 metadata:
   name: knet-stress
   namespace: knet-stress
   labels:
     app: knet-stress
 spec:
-  replicas: 10
   selector:
     matchLabels:
       app: knet-stress
@@ -39,10 +68,9 @@ spec:
     spec:
       containers:
       - args:
-        - --ca=/tls/ca.pem
-        - --cert=/tls/crt.pem
-        - --key=/tls/key.pem
-        - --dns=knet-stress.knet-stress.svc.cluster.local
+        - --connection-rate=2s
+        - --endpoint-name=knet-stress
+        - --endpoint-namespace=knet-stress
         - --instance-id=$POD_NAME
         env:
         - name: POD_NAME
@@ -53,47 +81,14 @@ spec:
         image: gcr.io/jetstack-josh/knet-stress
         imagePullPolicy: Always
         name: knet-stress
-        volumeMounts:
-        - mountPath: "/tls"
-          name: tls
         ports:
         - containerPort: 6433
           protocol: TCP
-      volumes:
-        - name: tls
-          csi:
-            driver: csi.cert-manager.io
-            volumeAttributes:
-              csi.cert-manager.io/issuer-name: ca-issuer
-              csi.cert-manager.io/dns-names: knet-stress.knet-stress.svc.cluster.local
----
-apiVersion: cert-manager.io/v1alpha2
-kind: Issuer
-metadata:
-  name: selfsigned-issuer
-  namespace: knet-stress
-spec:
-  selfSigned: {}
----
-apiVersion: cert-manager.io/v1alpha2
-kind: Certificate
-metadata:
-  name: ca-issuer
-  namespace: knet-stress
-spec:
-  isCA: true
-  secretName: ca-key-pair
-  commonName: knet-stress-ca
-  issuerRef:
-    name: selfsigned-issuer
-    kind: Issuer
-    group: cert-manager.io
----
-apiVersion: cert-manager.io/v1alpha2
-kind: Issuer
-metadata:
-  name: ca-issuer
-  namespace: knet-stress
-spec:
-  ca:
-    secretName: ca-key-pair
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+      serviceAccountName: knet-stress
