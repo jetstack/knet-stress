@@ -8,7 +8,7 @@ build: ## build knet-stress
 	CGO_ENABLED=0 go build -v -o ./bin/knet-stress .
 
 image: build ## build docker image
-	docker build -t gcr.io/jetstack-josh/knet-stress .
-	docker push gcr.io/jetstack-josh/knet-stress
+	docker build -t gcr.io/jetstack-josh/knet-stress:cli .
+	docker push gcr.io/jetstack-josh/knet-stress:cli
 
 all: image # build all targets

@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,8 @@ var options struct {
 	serverPort, servingPort         int
 
 	instanceID string
+
+	status bool
 }
 
 var r *rand.Rand
@@ -49,6 +52,8 @@ func init() {
 	flag.IntVar(&options.serverPort, "server-port", 6443, "Port to connect to the server.")
 
 	flag.StringVar(&options.instanceID, "instance-id", "worker-0", "Instance ID to identify this instance in metrics.")
+
+	flag.BoolVar(&options.status, "status", false, "Run single roundtrip ping.")
 
 	r = rand.New(rand.NewSource(time.Now().Unix()))
 }
@@ -76,16 +81,13 @@ func main() {
 		enableTLS = true
 	}
 
-	go listenAndServe(enableTLS)
+	if !options.status {
+		go listenAndServe(enableTLS)
+	}
 
 	if err := runClient(enableTLS, connDuration); err != nil {
 		log.Fatal(err.Error())
 	}
-
-	log.Infof("listening on :%d with TLS:%t",
-		options.servingPort, enableTLS)
-
-	select {}
 }
 
 func runClient(enableTLS bool, tickRate time.Duration) error {
@@ -115,35 +117,47 @@ func runClient(enableTLS bool, tickRate time.Duration) error {
 		log.Fatalf("failed to build in cluster kube client: %s", err)
 	}
 
-	go func() {
-		for {
-			<-ticker.C
+	for {
 
-			log.Infof("looking up endpoint: %s/%s", options.endpointName, options.endpointNamespace)
+		if err := doRoundTrip(kubeclient, client, enableTLS); err != nil {
+			log.Error(err)
 
-			const timeout = 5 * time.Second
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-			endpoint, err := kubeclient.CoreV1().Endpoints(options.endpointNamespace).Get(ctx, options.endpointName, metav1.GetOptions{})
-			if err != nil {
-				log.Errorf("failed to find endpoint %s/%s: %s",
-					options.endpointNamespace, options.endpointName, err)
-				continue
+			if options.status {
+				os.Exit(1)
 			}
-			cancel()
-
-			ips := addrsFromEndpoint(endpoint)
-
-			for _, ip := range ips {
-				addr := serverAddr(ip, enableTLS)
-
-				if err := doRequest(client, addr); err != nil {
-					log.Error(err.Error())
-				}
-			}
-
 		}
-	}()
+
+		if options.status {
+			fmt.Fprint(os.Stdout, "STATUS OK\n")
+			os.Exit(0)
+		}
+
+		<-ticker.C
+	}
+}
+
+func doRoundTrip(kubeclient *kubernetes.Clientset, client *http.Client, enableTLS bool) error {
+	log.Infof("looking up endpoint: %s/%s", options.endpointName, options.endpointNamespace)
+
+	const timeout = 5 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	endpoint, err := kubeclient.CoreV1().Endpoints(options.endpointNamespace).Get(ctx, options.endpointName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to find endpoint %s/%s: %s",
+			options.endpointNamespace, options.endpointName, err)
+	}
+
+	ips := addrsFromEndpoint(endpoint)
+
+	for _, ip := range ips {
+		addr := serverAddr(ip, enableTLS)
+
+		if err := doRequest(client, addr); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -268,4 +282,8 @@ func listenAndServe(enableTLS bool) {
 				options.servingPort, err)
 		}
 	}
+
+	log.Infof("listening on :%d with TLS:%t",
+		options.servingPort, enableTLS)
+
 }
