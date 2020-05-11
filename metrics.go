@@ -5,33 +5,44 @@ import (
 )
 
 var (
-	latencyMetrics = prometheus.NewHistogramVec(
+	apiSentRequestsMetrics = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "knet_stress",
+			Subsystem: "client",
+			Name:      "api_requests_sent",
+			Help:      "Number of requests sent to the API server",
+		},
+
+		[]string{"instance_id", "code"},
+	)
+
+	durationMetrics = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: "knet_stress",
 			Subsystem: "client",
-			Name:      "request_latency",
-			Help:      "Latency of network requests",
+			Name:      "requests_duration_seconds",
+			Help:      "Duration of network requests in seconds",
+			Buckets:   prometheus.LinearBuckets(.000, .010, 30),
 		},
-
-		[]string{"instance_id"},
+		[]string{"instance_id", "code"},
 	)
 
 	sentRequestMetrics = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "knet_stress",
 			Subsystem: "client",
-			Name:      "request_sent_count",
+			Name:      "requests_sent",
 			Help:      "Number of requests sent",
 		},
 
-		[]string{"instance_id"},
+		[]string{"instance_id", "code"},
 	)
 
 	receivedRequestMetrics = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "knet_stress",
 			Subsystem: "server",
-			Name:      "request_received_count",
+			Name:      "requests_received",
 			Help:      "Number of requests received",
 		},
 
@@ -40,7 +51,8 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(latencyMetrics)
+	prometheus.MustRegister(apiSentRequestsMetrics)
+	prometheus.MustRegister(durationMetrics)
 	prometheus.MustRegister(sentRequestMetrics)
 	prometheus.MustRegister(receivedRequestMetrics)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -18,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -27,7 +27,7 @@ var options struct {
 	caPath, certPath, keyPath string
 
 	endpointNamespace, endpointName string
-	connRate                        string
+	connRate                        time.Duration
 	podCount                        int
 	serverPort, servingPort         int
 
@@ -42,8 +42,7 @@ func init() {
 	flag.StringVar(&options.caPath, "ca", "", "Filepath to tls CA")
 	flag.StringVar(&options.certPath, "cert", "", "Filepath to tls certificate")
 	flag.StringVar(&options.keyPath, "key", "", "Filepath to tls private key")
-	flag.StringVar(&options.connRate, "connection-rate", "0.5s", "A golang duration time string to attempt a connection over the computed DNS")
-	flag.IntVar(&options.podCount, "pod-count", 1, "Number of pods to be used to randomise DNS over.")
+	flag.DurationVar(&options.connRate, "connection-rate", time.Second/2, "A golang duration time string to attempt a connection over the computed DNS")
 
 	flag.StringVar(&options.endpointName, "endpoint-name", "knet-stress", "The endpoint name to get IP addresses.")
 	flag.StringVar(&options.endpointNamespace, "endpoint-namespace", "knet-stress", "The endpoint namespace to get IP addresses.")
@@ -61,9 +60,8 @@ func init() {
 func main() {
 	flag.Parse()
 
-	connDuration, err := time.ParseDuration(options.connRate)
-	if err != nil {
-		log.Fatalf("failed to parse connection rate: %s", err)
+	if id := os.Getenv("KNET_STRESS_INSTANCE_ID"); options.instanceID == "worker-0" && len(id) > 0 {
+		options.instanceID = id
 	}
 
 	var enableTLS bool
@@ -85,7 +83,7 @@ func main() {
 		go listenAndServe(enableTLS)
 	}
 
-	if err := runClient(enableTLS, connDuration); err != nil {
+	if err := runClient(enableTLS, options.connRate); err != nil {
 		log.Fatal(err.Error())
 	}
 }
@@ -145,9 +143,18 @@ func doRoundTrip(kubeclient *kubernetes.Clientset, client *http.Client, enableTL
 
 	endpoint, err := kubeclient.CoreV1().Endpoints(options.endpointNamespace).Get(ctx, options.endpointName, metav1.GetOptions{})
 	if err != nil {
+		statusError, ok := err.(*apierrors.StatusError)
+		if !ok {
+			apiSentRequestsMetrics.WithLabelValues(options.instanceID, strconv.FormatInt(int64(statusError.Status().Code), 10)).Inc()
+		} else {
+			apiSentRequestsMetrics.WithLabelValues(options.instanceID, "0").Inc()
+		}
+
 		return fmt.Errorf("failed to find endpoint %s/%s: %s",
 			options.endpointNamespace, options.endpointName, err)
 	}
+
+	apiSentRequestsMetrics.WithLabelValues(options.instanceID, "200").Inc()
 
 	ips := addrsFromEndpoint(endpoint)
 
@@ -165,45 +172,22 @@ func doRoundTrip(kubeclient *kubernetes.Clientset, client *http.Client, enableTL
 func doRequest(client *http.Client, addr string) error {
 	log.Infof("sending request %s", addr)
 
-	sentRequestMetrics.WithLabelValues(options.instanceID).Inc()
-
 	req, err := http.NewRequest("GET", addr, strings.NewReader(""))
 	if err != nil {
 		log.Fatalf("failed to create request: %s", err)
 	}
 
+	start := time.Now()
+
 	resp, err := client.Do(req)
 	if err != nil {
+		durationMetrics.WithLabelValues(options.instanceID, "0").Observe(time.Since(start).Seconds())
 		return err
 	}
 
-	now := time.Now()
-
-	if resp == nil {
-		return errors.New("got nil response")
-	}
-
+	sentRequestMetrics.WithLabelValues(options.instanceID, strconv.Itoa(resp.StatusCode)).Inc()
+	durationMetrics.WithLabelValues(options.instanceID, strconv.Itoa(resp.StatusCode)).Observe(time.Since(start).Seconds())
 	log.Infof("got response status code: %d", resp.StatusCode)
-
-	if resp.Body != nil {
-		defer resp.Body.Close()
-
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("failed to ready response body: %s", err)
-		}
-
-		//log.Infof("body: %s", body)
-		n, err := strconv.ParseInt(string(body), 10, 64)
-		if err != nil {
-			return fmt.Errorf("%s", body)
-		}
-
-		t := time.Unix(0, n)
-		diff := now.Sub(t)
-
-		latencyMetrics.WithLabelValues(options.instanceID).Observe(float64(diff.Nanoseconds()))
-	}
 
 	return nil
 }

@@ -8,11 +8,14 @@ kind: Service
 metadata:
   name: knet-stress
   namespace: knet-stress
+  labels:
+    app: knet-stress
 spec:
   selector:
     app: knet-stress
   ports:
     - protocol: TCP
+      name: web
       port: 6443
       targetPort: 6443
 ---
@@ -71,19 +74,66 @@ spec:
         - --connection-rate=2s
         - --endpoint-name=knet-stress
         - --endpoint-namespace=knet-stress
-        - --instance-id=$POD_NAME
         env:
-        - name: POD_NAME
+        - name: KNET_STRESS_INSTANCE_ID
           valueFrom:
             fieldRef:
               apiVersion: v1
-              fieldPath: metadata.name
-        image: gcr.io/jetstack-josh/knet-stress
+              fieldPath: spec.nodeName
+        image: gcr.io/jetstack-josh/knet-stress:cli
         imagePullPolicy: Always
         name: knet-stress
         ports:
-        - containerPort: 6433
+        - containerPort: 6443
           protocol: TCP
+          name: web
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+      serviceAccountName: knet-stress
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: knet-stress-2
+  namespace: knet-stress
+  labels:
+    app: knet-stress
+spec:
+  selector:
+    matchLabels:
+      app: knet-stress
+  template:
+    metadata:
+      labels:
+        app: knet-stress
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "6443"
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+      - args:
+        - --connection-rate=2s
+        - --endpoint-name=knet-stress
+        - --endpoint-namespace=knet-stress
+        env:
+        - name: KNET_STRESS_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        image: gcr.io/jetstack-josh/knet-stress:cli
+        imagePullPolicy: Always
+        name: knet-stress
+        ports:
+        - containerPort: 6443
+          protocol: TCP
+          name: web
       tolerations:
       - effect: NoSchedule
         operator: Exists

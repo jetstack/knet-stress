@@ -1,10 +1,6 @@
-#FROM alpine:3.11
-FROM ubuntu
+FROM alpine:3.11
 
 LABEL description="A Kubernetes network stress test introspective tool"
-
-RUN apt-get update && apt-get upgrade -y
-RUN apt-get install -y curl iproute2 iputils-ping
 
 COPY ./bin/knet-stress /knet-stress
 
