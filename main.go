@@ -145,9 +145,9 @@ func doRoundTrip(kubeclient *kubernetes.Clientset, client *http.Client, enableTL
 	if err != nil {
 		statusError, ok := err.(*apierrors.StatusError)
 		if !ok {
-			apiSentRequestsMetrics.WithLabelValues(options.instanceID, strconv.FormatInt(int64(statusError.Status().Code), 10)).Inc()
-		} else {
 			apiSentRequestsMetrics.WithLabelValues(options.instanceID, "0").Inc()
+		} else {
+			apiSentRequestsMetrics.WithLabelValues(options.instanceID, strconv.FormatInt(int64(statusError.Status().Code), 10)).Inc()
 		}
 
 		return fmt.Errorf("failed to find endpoint %s/%s: %s",
