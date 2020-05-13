@@ -30,6 +30,7 @@ var options struct {
 	connRate                        time.Duration
 	podCount                        int
 	serverPort, servingPort         int
+	servingAddress                  string
 
 	instanceID string
 
@@ -47,7 +48,9 @@ func init() {
 	flag.StringVar(&options.endpointName, "endpoint-name", "knet-stress", "The endpoint name to get IP addresses.")
 	flag.StringVar(&options.endpointNamespace, "endpoint-namespace", "knet-stress", "The endpoint namespace to get IP addresses.")
 
+	flag.StringVar(&options.servingAddress, "serving-address", "0.0.0.0", "Address to serve traffic on.")
 	flag.IntVar(&options.servingPort, "serving-port", 6443, "Port to serve traffic on.")
+
 	flag.IntVar(&options.serverPort, "server-port", 6443, "Port to connect to the server.")
 
 	flag.StringVar(&options.instanceID, "instance-id", "worker-0", "Instance ID to identify this instance in metrics.")
@@ -249,7 +252,7 @@ func listenAndServe(enableTLS bool) {
 		fmt.Fprintf(w, "%d", time.Now().UnixNano())
 	})
 
-	addr := fmt.Sprintf(":%d", options.servingPort)
+	addr := fmt.Sprintf("%s:%d", options.servingAddress, options.servingPort)
 	if enableTLS {
 
 		err := http.ListenAndServeTLS(addr, options.certPath, options.keyPath, nil)
