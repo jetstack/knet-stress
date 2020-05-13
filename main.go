@@ -253,6 +253,8 @@ func listenAndServe(enableTLS bool) {
 	})
 
 	addr := fmt.Sprintf("%s:%d", options.servingAddress, options.servingPort)
+	log.Infof("listening on %s with TLS:%t", addr, enableTLS)
+
 	if enableTLS {
 
 		err := http.ListenAndServeTLS(addr, options.certPath, options.keyPath, nil)
@@ -269,8 +271,4 @@ func listenAndServe(enableTLS bool) {
 				options.servingPort, err)
 		}
 	}
-
-	log.Infof("listening on :%d with TLS:%t",
-		options.servingPort, enableTLS)
-
 }
