@@ -180,19 +180,19 @@ func doRequest(client *http.Client, addr string) error {
 		log.Fatalf("failed to create request: %s", err)
 	}
 
+	statusCode := "0"
 	start := time.Now()
 
 	resp, err := client.Do(req)
-	if err != nil {
-		durationMetrics.WithLabelValues(options.instanceID, "0").Observe(time.Since(start).Seconds())
-		return err
+	if resp != nil {
+		statusCode = strconv.Itoa(resp.StatusCode)
+		log.Infof("got response status code: %d", resp.StatusCode)
 	}
 
-	sentRequestMetrics.WithLabelValues(options.instanceID, strconv.Itoa(resp.StatusCode)).Inc()
-	durationMetrics.WithLabelValues(options.instanceID, strconv.Itoa(resp.StatusCode)).Observe(time.Since(start).Seconds())
-	log.Infof("got response status code: %d", resp.StatusCode)
+	durationMetrics.WithLabelValues(options.instanceID, statusCode).Observe(time.Since(start).Seconds())
+	sentRequestMetrics.WithLabelValues(options.instanceID, statusCode).Inc()
 
-	return nil
+	return err
 }
 
 func addrsFromEndpoint(enp *corev1.Endpoints) []string {
