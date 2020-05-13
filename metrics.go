@@ -22,7 +22,7 @@ var (
 			Subsystem: "client",
 			Name:      "requests_duration_seconds",
 			Help:      "Duration of network requests in seconds",
-			Buckets:   prometheus.LinearBuckets(.000, .010, 30),
+			Buckets:   prometheus.LinearBuckets(.000, .005, 40),
 		},
 		[]string{"instance_id", "code"},
 	)
