@@ -27,6 +27,7 @@ var options struct {
 	caPath, certPath, keyPath string
 
 	endpointNamespace, endpointName string
+	destination                     string
 	connRate                        time.Duration
 	podCount                        int
 	serverPort, servingPort         int
@@ -45,8 +46,9 @@ func init() {
 	flag.StringVar(&options.keyPath, "key", "", "Filepath to tls private key")
 	flag.DurationVar(&options.connRate, "connection-rate", time.Second/2, "A golang duration time string to attempt a connection over the computed DNS")
 
-	flag.StringVar(&options.endpointName, "endpoint-name", "knet-stress", "The endpoint name to get IP addresses.")
-	flag.StringVar(&options.endpointNamespace, "endpoint-namespace", "knet-stress", "The endpoint namespace to get IP addresses.")
+	flag.StringVar(&options.endpointName, "endpoint-name", "", "The endpoint name to get IP addresses.")
+	flag.StringVar(&options.endpointNamespace, "endpoint-namespace", "", "The endpoint namespace to get IP addresses.")
+	flag.StringVar(&options.destination, "destination", "", "The destination to send traffic. Overrides endpoint options.")
 
 	flag.StringVar(&options.servingAddress, "serving-address", "0.0.0.0", "Address to serve traffic on.")
 	flag.IntVar(&options.servingPort, "serving-port", 6443, "Port to serve traffic on.")
@@ -68,7 +70,6 @@ func main() {
 	}
 
 	var enableTLS bool
-
 	if len(options.caPath) == 0 ||
 		len(options.certPath) == 0 ||
 		len(options.keyPath) == 0 {
@@ -108,19 +109,28 @@ func runClient(enableTLS bool, tickRate time.Duration) error {
 		}
 	}
 
-	restConfig, err := rest.InClusterConfig()
-	if err != nil {
-		log.Fatalf("failed to get in cluster client config: %s", err)
-	}
+	var kubeclient *kubernetes.Clientset
+	if len(options.destination) == 0 {
+		restConfig, err := rest.InClusterConfig()
+		if err != nil {
+			log.Fatalf("failed to get in cluster client config: %s", err)
+		}
 
-	kubeclient, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		log.Fatalf("failed to build in cluster kube client: %s", err)
+		kubeclient, err = kubernetes.NewForConfig(restConfig)
+		if err != nil {
+			log.Fatalf("failed to build in cluster kube client: %s", err)
+		}
 	}
 
 	for {
+		var err error
+		if len(options.destination) == 0 {
+			err = doRoundTripEndpoints(kubeclient, client, enableTLS)
+		} else {
+			err = doRequest(client, options.destination)
+		}
 
-		if err := doRoundTrip(kubeclient, client, enableTLS); err != nil {
+		if err != nil {
 			log.Error(err)
 
 			if options.status {
@@ -137,7 +147,7 @@ func runClient(enableTLS bool, tickRate time.Duration) error {
 	}
 }
 
-func doRoundTrip(kubeclient *kubernetes.Clientset, client *http.Client, enableTLS bool) error {
+func doRoundTripEndpoints(kubeclient *kubernetes.Clientset, client *http.Client, enableTLS bool) error {
 	log.Infof("looking up endpoint: %s/%s", options.endpointName, options.endpointNamespace)
 
 	const timeout = 5 * time.Second
