@@ -46,8 +46,8 @@ func init() {
 	flag.StringVar(&options.keyPath, "key", "", "Filepath to tls private key")
 	flag.DurationVar(&options.connRate, "connection-rate", time.Second/2, "A golang duration time string to attempt a connection over the computed DNS")
 
-	flag.StringVar(&options.endpointName, "endpoint-name", "", "The endpoint name to get IP addresses.")
-	flag.StringVar(&options.endpointNamespace, "endpoint-namespace", "", "The endpoint namespace to get IP addresses.")
+	flag.StringVar(&options.endpointName, "endpoint-name", "knet-stress", "The endpoint name to get IP addresses.")
+	flag.StringVar(&options.endpointNamespace, "endpoint-namespace", "knet-stress", "The endpoint namespace to get IP addresses.")
 	flag.StringVar(&options.destination, "destination", "", "The destination to send traffic. Overrides endpoint options.")
 
 	flag.StringVar(&options.servingAddress, "serving-address", "0.0.0.0", "Address to serve traffic on.")
