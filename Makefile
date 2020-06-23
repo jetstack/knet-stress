@@ -5,10 +5,10 @@ help:  ## display this help
 
 build: ## build knet-stress
 	mkdir -p $(BINDIR)
-	CGO_ENABLED=0 go build -v -o ./bin/knet-stress .
+	CGO_ENABLED=0 go build -v -o ./bin/knet-stress ./cmd/.
 
 image: build ## build docker image
-	docker build -t gcr.io/jetstack-josh/knet-stress:cli .
-	docker push gcr.io/jetstack-josh/knet-stress:cli
+	docker build -t gcr.io/jetstack-josh/knet-stress:v0.1.0-alpha.0 .
+	docker push gcr.io/jetstack-josh/knet-stress:v0.1.0-alpha.0
 
 all: image # build all targets
