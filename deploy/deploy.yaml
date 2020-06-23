@@ -71,6 +71,7 @@ spec:
     spec:
       containers:
       - args:
+        - server
         - --connection-rate=2s
         - --endpoint-name=knet-stress
         - --endpoint-namespace=knet-stress
@@ -80,7 +81,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: spec.nodeName
-        image: gcr.io/jetstack-josh/knet-stress:cli
+        image: gcr.io/jetstack-josh/knet-stress:v0.1.0-alpha.0
         imagePullPolicy: Always
         name: knet-stress
         ports:
@@ -118,6 +119,7 @@ spec:
     spec:
       containers:
       - args:
+        - server
         - --connection-rate=2s
         - --endpoint-name=knet-stress
         - --endpoint-namespace=knet-stress
@@ -127,7 +129,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: spec.nodeName
-        image: gcr.io/jetstack-josh/knet-stress:cli
+        image: gcr.io/jetstack-josh/knet-stress:v0.1.0-alpha.0
         imagePullPolicy: Always
         name: knet-stress
         ports:
