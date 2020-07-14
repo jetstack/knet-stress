@@ -22,6 +22,7 @@ type rootOptions struct {
 type serverOptions struct {
 	ConnectionRate time.Duration
 	ServingAddress string
+	Response       string
 }
 
 func (o *rootOptions) AddFlags(fs *pflag.FlagSet) {
@@ -40,6 +41,7 @@ func (o *rootOptions) AddFlags(fs *pflag.FlagSet) {
 func (o *serverOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&o.ConnectionRate, "connection-rate", time.Second/2, "A golang duration time string to attempt a connection over the computed DNS")
 	fs.StringVar(&o.ServingAddress, "serving-address", "0.0.0.0:6443", "Address to serve traffic on.")
+	fs.StringVar(&o.Response, "serving-response", "", "Response to be made on the /hello endpoint. Empty will return the current Unix nanosecond time.")
 }
 
 func (o *rootOptions) Complete() {

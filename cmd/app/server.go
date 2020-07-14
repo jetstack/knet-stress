@@ -31,8 +31,15 @@ func NewServerCmd(ctx context.Context, options *rootOptions) *cobra.Command {
 				return err
 			}
 
-			server, err := server.New(metrics, serverOptions.ServingAddress,
-				options.KeyPath, options.CertPath, options.CAPath)
+			httpServerOptions := &server.Options{
+				KeyPath:        options.KeyPath,
+				CertPath:       options.CertPath,
+				CAPath:         options.CAPath,
+				ServingAddress: serverOptions.ServingAddress,
+				Response:       []byte(serverOptions.Response),
+			}
+
+			server, err := server.New(metrics, httpServerOptions)
 			if err != nil {
 				return err
 			}
