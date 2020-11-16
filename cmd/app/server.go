@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/joshvanl/knet-stress/pkg/client"
-	"github.com/joshvanl/knet-stress/pkg/metrics"
-	"github.com/joshvanl/knet-stress/pkg/server"
+	"github.com/jetstack/knet-stress/pkg/client"
+	"github.com/jetstack/knet-stress/pkg/metrics"
+	"github.com/jetstack/knet-stress/pkg/server"
 )
 
 func NewServerCmd(ctx context.Context, options *rootOptions) *cobra.Command {

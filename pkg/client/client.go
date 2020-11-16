@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/joshvanl/knet-stress/pkg/metrics"
+	"github.com/jetstack/knet-stress/pkg/metrics"
 )
 
 type Client struct {

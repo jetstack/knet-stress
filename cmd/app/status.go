@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/joshvanl/knet-stress/pkg/client"
-	"github.com/joshvanl/knet-stress/pkg/metrics"
+	"github.com/jetstack/knet-stress/pkg/client"
+	"github.com/jetstack/knet-stress/pkg/metrics"
 )
 
 func NewStatusCmd(ctx context.Context, options *rootOptions) *cobra.Command {

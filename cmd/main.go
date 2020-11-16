@@ -9,7 +9,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/joshvanl/knet-stress/cmd/app"
+	"github.com/jetstack/knet-stress/cmd/app"
 )
 
 func main() {

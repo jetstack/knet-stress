@@ -1,4 +1,4 @@
-module github.com/joshvanl/knet-stress
+module github.com/jetstack/knet-stress
 
 go 1.14
 

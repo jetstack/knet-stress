@@ -12,7 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/joshvanl/knet-stress/pkg/metrics"
+	"github.com/jetstack/knet-stress/pkg/metrics"
 )
 
 type Server struct {
